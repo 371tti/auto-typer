@@ -10,7 +10,54 @@ use std::{
 };
 
 use eframe::egui;
-use enigo::{Direction::Click, Enigo, Key, Keyboard, Settings};
+use enigo::{Direction::{Click, Press, Release}, Enigo, Key, Keyboard, Settings};
+
+fn physical_key(ch: char) -> Option<(Key, bool)> {
+    let key = match ch.to_ascii_lowercase() {
+        'a' => Key::A, 'b' => Key::B, 'c' => Key::C, 'd' => Key::D,
+        'e' => Key::E, 'f' => Key::F, 'g' => Key::G, 'h' => Key::H,
+        'i' => Key::I, 'j' => Key::J, 'k' => Key::K, 'l' => Key::L,
+        'm' => Key::M, 'n' => Key::N, 'o' => Key::O, 'p' => Key::P,
+        'q' => Key::Q, 'r' => Key::R, 's' => Key::S, 't' => Key::T,
+        'u' => Key::U, 'v' => Key::V, 'w' => Key::W, 'x' => Key::X,
+        'y' => Key::Y, 'z' => Key::Z,
+        '0' => Key::Num0, '1' | '!' => Key::Num1,
+        '2' | '"' => Key::Num2, '3' | '#' => Key::Num3,
+        '4' | '$' => Key::Num4, '5' | '%' => Key::Num5,
+        '6' | '&' => Key::Num6, '7' | '\'' => Key::Num7,
+        '8' | '(' => Key::Num8, '9' | ')' => Key::Num9,
+        // JP106: punctuation keys differ from the US layout.
+        '-' | '=' => Key::OEMMinus,
+        '^' | '~' => Key::OEM7,
+        '\\' | '|' => Key::OEM5,
+        '@' | '`' => Key::OEM3,
+        '[' | '{' => Key::OEM4, ']' | '}' => Key::OEM6,
+        ';' | '+' => Key::OEMPlus, ':' | '*' => Key::OEM1,
+        ',' | '<' => Key::OEMComma, '.' | '>' => Key::OEMPeriod,
+        '/' | '?' => Key::OEM2, '_' => Key::OEM102,
+        ' ' => Key::Space,
+        _ => return None,
+    };
+    Some((key, ch.is_ascii_uppercase() || "!\"#$%&'()=~|@{}+*:<>?_".contains(ch)))
+}
+
+fn type_char(enigo: &mut Enigo, ch: char) -> enigo::InputResult<()> {
+    // noVNC listens for physical keydown/keyup events. Unicode injection can
+    // bypass those events, so use the US keyboard scan-code path for ASCII.
+    let Some((key, shifted)) = physical_key(ch) else {
+        return enigo.text(&ch.to_string());
+    };
+
+    if shifted { enigo.key(Key::LShift, Press)?; }
+    let result = enigo.key(key, Click);
+    if shifted {
+        // Always release Shift, even if the key event failed.
+        let release_result = enigo.key(Key::LShift, Release);
+        result.and(release_result)
+    } else {
+        result
+    }
+}
 
 
 fn configure_fonts(ctx: &egui::Context) {
@@ -137,7 +184,7 @@ impl AutoTyperApp {
                 let result = match ch {
                     '\n' => enigo.key(Key::Return, Click),
                     '\t' => enigo.key(Key::Tab, Click),
-                    _ => enigo.text(&ch.to_string()),
+                    _ => type_char(&mut enigo, ch),
                 };
 
                 if result.is_err() {
